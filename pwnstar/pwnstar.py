@@ -88,12 +88,15 @@ async def async_main():
         history, return_code = await run_local(protocol_factory)
 
     if args.history:
-        json_data = json.dump(
-            [{
+        history = [
+            {
                 k: v if type(v) is not bytes else v.decode('latin')
                 for k, v in e.items()
             }
-            for e in history],
+            for e in history
+        ]
+        json.dump(
+            {'interaction': history, 'return_code': return_code}
             args.history,
             indent=4)
         args.history.close()
