@@ -96,6 +96,7 @@ async def async_main():
             for e in history],
             args.history,
             indent=4)
+        args.history.close()
 
     if args.returncode:
         exit(return_code)
