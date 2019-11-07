@@ -96,7 +96,7 @@ async def async_main():
             for e in history
         ]
         json.dump(
-            {'interaction': history, 'return_code': return_code}
+            {'interaction': history, 'return_code': return_code},
             args.history,
             indent=4)
         args.history.close()
