@@ -33,13 +33,20 @@ async def run_local(protocol_factory):
 
     await gateway.exit_future
 
-    return gateway.history
+    history = gateway.history
+    if isinstance(gateway.target_transport, asyncio.SubprocessTransport):
+        return_code = gateway.target_transport.get_returncode()
+    else:
+        return_code = 0
+
+    return history, return_code
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--server', nargs=2, metavar=('host', 'port'))
     parser.add_argument('--history', default=None, type=argparse.FileType('w'))
+    parser.add_argument('--returncode', default=False, action='store_true')
     parser.add_argument('--remote', nargs=2, metavar=('host', 'port'))
     parser.add_argument('local', nargs='*')
     args = parser.parse_args()
@@ -78,7 +85,7 @@ async def async_main():
         await run_server(protocol_factory, *args.server)
 
     else:
-        history = await run_local(protocol_factory)
+        history, return_code = await run_local(protocol_factory)
 
     if args.history:
         json_data = json.dump(
@@ -89,6 +96,9 @@ async def async_main():
             for e in history],
             args.history,
             indent=4)
+
+    if args.returncode:
+        exit(return_code)
 
 
 def main():
