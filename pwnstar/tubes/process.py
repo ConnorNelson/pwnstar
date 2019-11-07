@@ -1,3 +1,4 @@
+import os
 import time
 import logging
 import asyncio
@@ -23,7 +24,9 @@ class ProcessProtocol(asyncio.Protocol):
                 lambda: TargetProcessProtocol(transport,
                                               self.exit_future,
                                               self.history),
-                *self.proc_args)
+                *self.proc_args,
+                close_fds=False,
+                env=os.environ)
 
             self.target_transport = target_transport
 
