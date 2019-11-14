@@ -10,13 +10,15 @@ logger = logging.getLogger('pwnstar.tubes.process')
 
 
 class ProcessProtocol(asyncio.Protocol):
-    def __init__(self, proc_args):
+    def __init__(self, proc_args, *, input_preprocessor=None):
         self.proc_args = proc_args
-        self.exit_future = asyncio.Future()
+        self.input_preprocessor = input_preprocessor
         self.history = []
+        self.exit_future = asyncio.Future()
 
     @log(logger)
     def connection_made(self, transport):
+        self.transport = transport
         loop = asyncio.get_running_loop()
 
         async def start_target():
@@ -35,6 +37,14 @@ class ProcessProtocol(asyncio.Protocol):
 
     @log(logger)
     def data_received(self, data):
+        if self.input_preprocessor:
+            try:
+                data = self.input_preprocessor(data)
+                if data is None:
+                    return
+            except Exception as e:
+                self.transport.write(b'!Error: ' + str(e).encode() + b'\n')
+                return
         self.target_transport.get_pipe_transport(0).write(data)
         self.history.append({
             'direction': 'input',

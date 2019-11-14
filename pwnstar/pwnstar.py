@@ -47,6 +47,7 @@ def parse_arguments():
     parser.add_argument('--server', nargs=2, metavar=('host', 'port'))
     parser.add_argument('--history', default=None, type=argparse.FileType('w'))
     parser.add_argument('--returncode', default=False, action='store_true')
+    parser.add_argument('--repl', default=False, action='store_true')
     parser.add_argument('--remote', nargs=2, metavar=('host', 'port'))
     parser.add_argument('local', nargs='*')
     args = parser.parse_args()
@@ -77,9 +78,41 @@ def parse_arguments():
 async def async_main():
     args = parse_arguments()
 
+    input_preprocessor = None
+    if args.repl:
+        def input_preprocessor(data, *, globals={}, locals={}, scope=[]):
+            def process(data):
+                try:
+                    data = eval(data, globals, locals)
+                    if type(data) is not bytes:
+                        data = str(data).encode() + b'\n'
+                    return data
+                except SyntaxError:
+                    exec(data, globals, locals)
+                    return None
+
+            if data == b'!!!\n':
+                # It would be nice to use code.interact and drop into a proper repl sent across the transport
+                if scope:
+                    data = b''.join(scope[1:])
+                    scope.clear()
+                    data = process(data)
+                else:
+                    scope.append(None)
+                    return None
+
+            elif scope:
+                scope.append(data)
+                return None
+
+            elif data.startswith(b'!'):
+                data = process(data[1:])
+
+            return data
+
     if args.local:
         def protocol_factory():
-            return ProcessProtocol(args.local)
+            return ProcessProtocol(args.local, input_preprocessor=input_preprocessor)
 
     if args.server:
         await run_server(protocol_factory, *args.server)

@@ -8,12 +8,14 @@ logger = logging.getLogger("pwnstar.tubes.remote")
 
 
 class RemoteProtocol(asyncio.Protocol):
-    def __init__(self, host, port):
+    def __init__(self, host, port, *, input_preprocessor):
         self.host = host
         self.port = port
+        self.input_preprocessor = input_preprocessor
 
     @log(logger)
     def connection_made(self, transport):
+        self.transport = transport
         loop = asyncio.get_running_loop()
 
         async def task():
@@ -28,6 +30,14 @@ class RemoteProtocol(asyncio.Protocol):
 
     @log(logger)
     def data_received(self, data):
+        if self.input_preprocessor:
+            try:
+                data = self.input_preprocessor(data)
+                if data is None:
+                    return
+            except Exception as e:
+                self.transport.write(str(e).encode())
+                return
         self.target_transport.write(data)
 
     @log(logger)
