@@ -4,11 +4,12 @@ import os
 import sys
 import time
 import json
+import pathlib
 import argparse
 import logging
 import asyncio
 
-import websockets
+from aiohttp import web
 
 from pwnstar.tubes import ProcessProtocol
 
@@ -155,27 +156,40 @@ async def run_server(create_target, host, port):
 
 async def run_webserver(create_target, host, port):
     loop = asyncio.get_running_loop()
+    static_dir = pathlib.Path(__file__).parent / 'ws_static'
 
-    async def ws_handler(websocket, path):
+    async def index(request):
+        return web.FileResponse(static_dir / 'index.html')
+
+
+    async def ws_handler(request):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
         pwnstar = Pwnstar()
 
         target = await create_target(pwnstar)
 
-        pwnstar.gateway_write = lambda data: loop.create_task(websocket.send(data))
-        pwnstar.gateway_write_eof = lambda: loop.create_task(websocket.close_connection())  # TODO: maybe should be websocket.transport.write_eof? Need to think about websocket shutdown semantics
-        pwnstar.gateway_close = lambda: loop.create_task(websocket.close())
+        pwnstar.gateway_write = lambda data: loop.create_task(ws.send_bytes(data))
+        pwnstar.gateway_write_eof = lambda: loop.create_task(ws.close())  # TODO: maybe should be websocket.transport.write_eof? Need to think about websocket shutdown semantics
+        pwnstar.gateway_close = lambda: loop.create_task(ws.close())
 
-        async for data in websocket:
+        async for msg in ws:
+            data = msg.data.encode()
             if not data:
                 data = pwnstar.on_send(b'')
                 pwnstar.target_write_eof()
-                await websocket.wait_closed()
-                break
-            data = pwnstar.on_send(data.encode())
+                # await websocket.wait_closed()
+                # break
+            data = pwnstar.on_send(data)
             pwnstar.target_write(data)
 
-    server = await websockets.serve(ws_handler, host, port)
-    await server.wait_closed()
+    app = web.Application()
+    app.add_routes([web.get('/', index),
+                    web.get('/ws', ws_handler),
+                    web.static('/',  static_dir, show_index=True)])
+
+    await web._run_app(app, host=host, port=port)
 
 
 async def run_local(create_target):
@@ -211,6 +225,7 @@ def parse_arguments():
     parser.add_argument('--server', nargs=2, metavar=('host', 'port'))
     parser.add_argument('--webserver', nargs=2, metavar=('host', 'port'))
     parser.add_argument('--history', default=None, type=argparse.FileType('w'))
+    parser.add_argument('--tty', default=False, action='store_true')
     parser.add_argument('--returncode', default=False, action='store_true')
     parser.add_argument('--repl', default=False, action='store_true')
     parser.add_argument('--remote', nargs=2, metavar=('host', 'port'))
@@ -221,6 +236,9 @@ def parse_arguments():
         parser.error('cannot have both process and remote arguments')
     elif not (args.process or args.remote):
         parser.error('must have process or remote arguments')
+
+    if args.tty and not args.process:
+        parser.error('tty is only available for process')
 
     def valid_host_port(host, port):
         try:
@@ -276,8 +294,12 @@ async def async_main():
             return data
 
     if args.process:
-        def create_target(pwnstar):
-            return create_process_target(pwnstar, proc_args=args.process)
+        if args.tty:
+            def create_target(pwnstar):
+                return create_tty_process_target(pwnstar, proc_args=args.process)
+        else:
+            def create_target(pwnstar):
+                return create_process_target(pwnstar, proc_args=args.process)
 
     elif args.remote:
         host, port = args.remote
