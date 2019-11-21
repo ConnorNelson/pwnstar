@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 
+import os
 import sys
-import argparse
+import time
 import json
+import argparse
 import logging
 import asyncio
+
+import websockets
 
 from pwnstar.tubes import ProcessProtocol
 
@@ -12,10 +16,136 @@ from pwnstar.tubes import ProcessProtocol
 logging.basicConfig(level=logging.INFO)
 
 
-async def run_server(protocol_factory, host, port):
+class Pwnstar:
+    def __init__(self):
+        self.gateway_write = None
+        self.gateway_write_eof = None
+        self.gateway_close = None
+        self.target_write = None
+        self.target_write_eof = None
+        self.target_get_returncode = None
+        self.history = []
+
+    def on_recv(self, data, fd=None):
+        self.history.append({
+            'direction': 'output',
+            'data': data,
+            'fd': fd,
+            'time': time.time()
+        })
+        return data
+
+    def on_send(self, data, fd=None):
+        self.history.append({
+            'direction': 'input',
+            'data': data,
+            'fd': fd,
+            'time': time.time()
+        })
+        return data
+
+    def on_exit(self):
+        history = [
+            {
+                k: v if type(v) is not bytes else v.decode('latin')
+                for k, v in e.items()
+            }
+            for e in self.history
+        ]
+        data = json.dumps(
+            {
+                'interaction': history,
+                'return_code': self.target_get_returncode() if self.target_get_returncode else None
+            },
+            indent=4
+        )
+        # print(data)
+
+
+class GatewayProtocol(asyncio.Protocol):
+    def __init__(self, create_target, pwnstar):
+        self.create_target = create_target
+        self.pwnstar = pwnstar
+
+    def connection_made(self, transport):
+        if isinstance(transport, asyncio.WriteTransport):
+            self.pwnstar.gateway_write = transport.write
+            self.pwnstar.gateway_write_eof = transport.write_eof
+            self.pwnstar.gateway_close = transport.close
+            asyncio.get_running_loop().create_task(self.create_target(self.pwnstar))
+
+    def data_received(self, data):
+        data = self.pwnstar.on_send(data)
+        self.pwnstar.target_write(data)
+
+    def eof_received(self):
+        data = self.pwnstar.on_send(b'')
+        self.pwnstar.target_write_eof()
+        return True  # keep connection open
+
+
+async def create_tty_process_target(pwnstar, *, proc_args):
+    # TODO: in progress
+
     loop = asyncio.get_running_loop()
 
-    server = await loop.create_server(protocol_factory,
+    import pty
+    master, slave = pty.openpty()
+
+    target_transport, target_protocol = await loop.subprocess_exec(
+        lambda: ProcessProtocol(pwnstar),
+        *proc_args,
+        close_fds=False,
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        start_new_session=True,
+        env=os.environ)
+
+    target_transport._proc.stdin = open(master, 'wb', -1)
+    target_transport._proc.stdout = open(master, 'rb', -1)
+    target_transport._proc.stderr = open(master, 'rb', -1)
+    await target_transport._connect_pipes(None)
+
+    def target_write(data):
+        target_transport._proc.stdin.write(data)
+        target_transport._proc.stdin.flush()
+
+    pwnstar.target_write = target_write
+    pwnstar.target_write_eof = lambda: target_write(b'\x04')
+    pwnstar.target_get_returncode = target_transport.get_returncode
+
+
+async def create_process_target(pwnstar, *, proc_args):
+    loop = asyncio.get_running_loop()
+
+    target_transport, target_protocol = await loop.subprocess_exec(
+        lambda: ProcessProtocol(pwnstar),
+        *proc_args,
+        close_fds=False,
+        env=os.environ)
+
+    pwnstar.target_write = target_transport.get_pipe_transport(0).write
+    pwnstar.target_write_eof = target_transport.get_pipe_transport(0).write_eof
+    pwnstar.target_get_returncode = target_transport.get_returncode
+
+
+async def create_remote_target(write_gateway, write_eof_gateway, *, host, port):
+    loop = asyncio.get_running_loop()
+
+    target_transport, target_protocol = await loop.create_connection(
+        lambda: RemoteProtocol(pwnstar),
+        host,
+        port)
+
+    pwnstar.target_write = target_transport.write
+    pwnstar.target_write_eof = target_transport.write_eof
+
+
+async def run_server(create_target, host, port):
+    loop = asyncio.get_running_loop()
+
+    server = await loop.create_server(lambda: GatewayProtocol(create_target, Pwnstar()),
                                       host=host,
                                       port=port)
 
@@ -23,19 +153,53 @@ async def run_server(protocol_factory, host, port):
         await server.serve_forever()
 
 
-async def run_local(protocol_factory):
+async def run_webserver(create_target, host, port):
     loop = asyncio.get_running_loop()
 
-    gateway = protocol_factory()
+    async def ws_handler(websocket, path):
+        pwnstar = Pwnstar()
+
+        target = await create_target(pwnstar)
+
+        pwnstar.gateway_write = lambda data: loop.create_task(websocket.send(data))
+        pwnstar.gateway_write_eof = lambda: loop.create_task(websocket.close_connection())  # TODO: maybe should be websocket.transport.write_eof? Need to think about websocket shutdown semantics
+        pwnstar.gateway_close = lambda: loop.create_task(websocket.close())
+
+        async for data in websocket:
+            if not data:
+                data = pwnstar.on_send(b'')
+                pwnstar.target_write_eof()
+                await websocket.wait_closed()
+                break
+            data = pwnstar.on_send(data.encode())
+            pwnstar.target_write(data)
+
+    server = await websockets.serve(ws_handler, host, port)
+    await server.wait_closed()
+
+
+async def run_local(create_target):
+    loop = asyncio.get_running_loop()
+
+    pwnstar = Pwnstar()
+
+    exit_future = asyncio.Future()
+    original_exit = pwnstar.on_exit
+    def on_exit(self):
+        original_exit()
+        exit_future.set_result(True)
+    pwnstar.on_exit = on_exit.__get__(pwnstar)
+
+    gateway = GatewayProtocol(create_target, pwnstar)
 
     await loop.connect_read_pipe(lambda: gateway, sys.stdin)
     await loop.connect_write_pipe(lambda: gateway, sys.stdout)
 
-    await gateway.exit_future
+    await exit_future
 
-    history = gateway.history
-    if isinstance(gateway.target_transport, asyncio.SubprocessTransport):
-        return_code = gateway.target_transport.get_returncode()
+    history = pwnstar.history
+    if pwnstar.target_get_returncode:
+        return_code = pwnstar.target_get_returncode()
     else:
         return_code = 0
 
@@ -45,17 +209,18 @@ async def run_local(protocol_factory):
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--server', nargs=2, metavar=('host', 'port'))
+    parser.add_argument('--webserver', nargs=2, metavar=('host', 'port'))
     parser.add_argument('--history', default=None, type=argparse.FileType('w'))
     parser.add_argument('--returncode', default=False, action='store_true')
     parser.add_argument('--repl', default=False, action='store_true')
     parser.add_argument('--remote', nargs=2, metavar=('host', 'port'))
-    parser.add_argument('local', nargs='*')
+    parser.add_argument('process', nargs='*')
     args = parser.parse_args()
 
-    if args.local and args.remote:
-        parser.error('cannot have both local and remote arguments')
-    elif not (args.local or args.remote):
-        parser.error('must have local or remote arguments')
+    if args.process and args.remote:
+        parser.error('cannot have both process and remote arguments')
+    elif not (args.process or args.remote):
+        parser.error('must have process or remote arguments')
 
     def valid_host_port(host, port):
         try:
@@ -110,15 +275,23 @@ async def async_main():
 
             return data
 
-    if args.local:
-        def protocol_factory():
-            return ProcessProtocol(args.local, input_preprocessor=input_preprocessor)
+    if args.process:
+        def create_target(pwnstar):
+            return create_process_target(pwnstar, proc_args=args.process)
+
+    elif args.remote:
+        host, port = args.remote
+        def create_target(pwnstar):
+            return create_remote_target(pwnstar, host=host, port=port)
 
     if args.server:
-        await run_server(protocol_factory, *args.server)
+        await run_server(create_target, *args.server)
+
+    elif args.webserver:
+        await run_webserver(create_target, *args.webserver)
 
     else:
-        history, return_code = await run_local(protocol_factory)
+        history, return_code = await run_local(create_target)
 
     if args.history:
         history = [

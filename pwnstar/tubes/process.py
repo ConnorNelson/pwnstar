@@ -9,98 +9,20 @@ from .utils import log
 logger = logging.getLogger('pwnstar.tubes.process')
 
 
-class ProcessProtocol(asyncio.Protocol):
-    def __init__(self, proc_args, *, input_preprocessor=None):
-        self.proc_args = proc_args
-        self.input_preprocessor = input_preprocessor
-        self.history = []
-        self.exit_future = asyncio.Future()
-
-    @log(logger)
-    def connection_made(self, transport):
-        self.transport = transport
-        loop = asyncio.get_running_loop()
-
-        async def start_target():
-            target_transport, target_protocol = await loop.subprocess_exec(
-                lambda: TargetProcessProtocol(transport,
-                                              self.exit_future,
-                                              self.history),
-                *self.proc_args,
-                close_fds=False,
-                env=os.environ)
-
-            self.target_transport = target_transport
-
-        if isinstance(transport, asyncio.WriteTransport):
-            loop.create_task(start_target())
-
-    @log(logger)
-    def data_received(self, data):
-        if self.input_preprocessor:
-            try:
-                data = self.input_preprocessor(data)
-                if data is None:
-                    return
-            except Exception as e:
-                self.transport.write(b'!Error: ' + str(e).encode() + b'\n')
-                return
-        self.target_transport.get_pipe_transport(0).write(data)
-        self.history.append({
-            'direction': 'input',
-            'data': data,
-            'time': time.time()
-        })
-
-    @log(logger)
-    def eof_received(self):
-        self.target_transport.get_pipe_transport(0).write_eof()
-        self.history.append({
-            'direction': 'input',
-            'data': b'',
-            'time': time.time()
-        })
-        return True  # keep connection open
-
-    @log(logger)
-    def connection_lost(self, exc):
-        pass
-
-
-class TargetProcessProtocol(asyncio.SubprocessProtocol):
-    def __init__(self, gateway_transport, exit_future, history):
-        self.gateway_transport = gateway_transport
-        self.exit_future = exit_future
-        self.history = history
-
-    @log(logger)
-    def connection_made(self, transport):
-        pass
+class ProcessProtocol(asyncio.SubprocessProtocol):
+    def __init__(self, pwnstar):
+        self.pwnstar = pwnstar
 
     @log(logger)
     def pipe_data_received(self, fd, data):
-        result = self.gateway_transport.write(data)
-        self.history.append({
-            'direction': 'output',
-            'data': data,
-            'time': time.time(),
-            'fd': fd
-        })
+        data = self.pwnstar.on_recv(data, fd)
+        self.pwnstar.gateway_write(data)
 
     @log(logger)
     def pipe_connection_lost(self, fd, exc):
-        self.history.append({
-            'direction': 'output',
-            'data': b'',
-            'time': time.time(),
-            'fd': fd
-        })
+        self.pwnstar.on_recv(b'', fd)
 
     @log(logger)
     def process_exited(self):
-        self.gateway_transport.close()
-        self.exit_future.set_result(True)
-
-    @log(logger)
-    def connection_lost(self, exc):
-        pass
+        self.pwnstar.on_exit()
+        self.pwnstar.gateway_close()

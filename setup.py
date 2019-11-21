@@ -16,6 +16,7 @@ setup(
     version='0.01',
     packages=packages,
     install_requires=[
+        'websockets'
     ],
     dependency_links=[
     ],
