@@ -16,7 +16,7 @@ setup(
     version='0.01',
     packages=packages,
     install_requires=[
-        'websockets'
+        'aiohttp'
     ],
     dependency_links=[
     ],

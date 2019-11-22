@@ -16,7 +16,8 @@ class ProcessProtocol(asyncio.SubprocessProtocol):
     @log(logger)
     def pipe_data_received(self, fd, data):
         data = self.pwnstar.on_recv(data, fd)
-        self.pwnstar.gateway_write(data)
+        if self.pwnstar.gateway_write:
+            self.pwnstar.gateway_write(data)
 
     @log(logger)
     def pipe_connection_lost(self, fd, exc):
@@ -25,4 +26,5 @@ class ProcessProtocol(asyncio.SubprocessProtocol):
     @log(logger)
     def process_exited(self):
         self.pwnstar.on_exit()
-        self.pwnstar.gateway_close()
+        if self.pwnstar.gateway_close:
+            self.pwnstar.gateway_close()
