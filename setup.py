@@ -20,6 +20,9 @@ setup(
     ],
     dependency_links=[
     ],
+    package_data={
+        'pwnstar': ['ws_static/*', 'ws_static/*/*']
+    },
     entry_points = {
         'console_scripts': [
             'pwnstar = pwnstar.pwnstar:main',

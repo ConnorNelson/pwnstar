@@ -10,7 +10,6 @@ import argparse
 import logging
 import asyncio
 
-import requests
 from aiohttp import web
 
 from pwnstar.tubes import ProcessProtocol, RemoteProtocol
