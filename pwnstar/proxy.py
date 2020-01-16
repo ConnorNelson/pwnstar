@@ -1,4 +1,5 @@
 import time
+import asyncio
 
 
 class Proxy:
@@ -10,6 +11,7 @@ class Proxy:
         self.target_write_eof = None
         self.target_get_returncode = None
         self.history = []
+        self.exited = asyncio.Future()
 
     def on_recv(self, data, fd=None):
         self.history.append({
@@ -42,4 +44,5 @@ class Proxy:
             'return_code': self.target_get_returncode() if self.target_get_returncode else None
         }
 
+        self.exited.set_result(data)
         return data

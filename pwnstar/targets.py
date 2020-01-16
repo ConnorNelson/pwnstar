@@ -48,13 +48,14 @@ async def create_tty_process_target(proxy, *, proc_args):
     proxy.target_get_returncode = target_transport.get_returncode
 
 
-async def create_remote_target(proxy, *, host, port):
+async def create_remote_target(proxy, *, host=None, port=None, sock=None):
     loop = asyncio.get_running_loop()
 
     target_transport, target_protocol = await loop.create_connection(
         lambda: pwnstar.tubes.RemoteProtocol(proxy),
-        host,
-        port)
+        host=host,
+        port=port,
+        sock=sock)
 
     proxy.target_write = target_transport.write
     proxy.target_write_eof = target_transport.write_eof

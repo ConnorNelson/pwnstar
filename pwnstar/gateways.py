@@ -48,8 +48,6 @@ async def run_webserver(create_target, create_proxy, *, host, port, tty=False):
             if not data:
                 data = proxy.on_send(b'')
                 proxy.target_write_eof()
-                # await websocket.wait_closed()
-                # break
             data = proxy.on_send(data)
             proxy.target_write(data)
 
@@ -67,24 +65,10 @@ async def run_local(create_target, create_proxy):
 
     proxy = create_proxy()
 
-    exit_future = asyncio.Future()
-    original_exit = proxy.on_exit
-    def on_exit(self):
-        result = original_exit()
-        exit_future.set_result(True)
-        return result
-    proxy.on_exit = on_exit.__get__(proxy)
-
     gateway = pwnstar.tubes.GatewayProtocol(create_target, proxy)
 
     await loop.connect_read_pipe(lambda: gateway, sys.stdin)
     await loop.connect_write_pipe(lambda: gateway, sys.stdout)
 
-    await exit_future
-
-    if proxy.target_get_returncode:
-        return_code = proxy.target_get_returncode()
-    else:
-        return_code = 0
-
-    return return_code
+    data = await proxy.exited
+    return data['return_code']

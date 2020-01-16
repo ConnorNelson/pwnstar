@@ -36,13 +36,13 @@ $(function () {
     resize();
     $(window).resize(resize);
 
-    var url = new URL('/ws', window.location.href);
-    url.protocol = url.protocol.replace('http', 'ws');
-
-    var socket = new WebSocket(url);
-    socket.binaryType = 'arraybuffer';
-
     $.getJSON('/tty', (tty) => {
+        var url = new URL('/ws', window.location.href);
+        url.protocol = url.protocol.replace('http', 'ws');
+
+        var socket = new WebSocket(url);
+        socket.binaryType = 'arraybuffer';
+
         if (tty) {
             terminal.onData((data) => {
                 if (socket.readyState == 1) {

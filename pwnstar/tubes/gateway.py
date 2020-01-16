@@ -4,7 +4,7 @@ import asyncio
 from .utils import log
 
 
-logger = logging.getLogger('pwnstar.tubes.process')
+logger = logging.getLogger('pwnstar.tubes.gateway')
 
 
 class GatewayProtocol(asyncio.Protocol):
