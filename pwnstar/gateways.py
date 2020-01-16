@@ -5,7 +5,6 @@ import asyncio
 from aiohttp import web
 
 import pwnstar.tubes
-# TODO: deal with custom proxy
 
 
 async def run_server(create_target, create_proxy, *, host, port):
