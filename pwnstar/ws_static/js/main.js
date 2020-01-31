@@ -154,7 +154,7 @@ $(function () {
             jQuery('.pwnstar-terminal').css('opacity', '0.5');
             $('.modal').removeClass('loader');
             $('.modal').addClass('redo');
-            $('.modal').css('display', '');
+            $('.modal').show(1000);
             $('.modal').click(() => {
                 window.location.reload();
             })
