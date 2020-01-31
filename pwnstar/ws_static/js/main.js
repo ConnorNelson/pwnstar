@@ -105,10 +105,10 @@ function nonttyHandlers(terminal, socket) {
 
         if (typeof data !== 'string') {
             var enc = new TextDecoder("utf-8");
-            message = JSON.parse(enc.decode(event.data));
+            message = JSON.parse(enc.decode(e.data));
         }
         else {
-            message = JSON.parse(event.data);
+            message = JSON.parse(e.data);
         }
 
         if (!terminal.outputs.includes(message.channel)) {
@@ -150,7 +150,7 @@ $(function () {
         var socket = new WebSocket(url);
         socket.binaryType = 'arraybuffer';
 
-        socket.onclose = (event) => {
+        socket.onclose = (e) => {
             jQuery('.pwnstar-terminal').css('opacity', '0.5');
         }
 
