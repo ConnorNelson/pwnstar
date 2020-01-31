@@ -60,7 +60,7 @@ async def async_main(process=None,
                 return pwnstar.create_tty_process_target(proxy, proc_args=process)
         elif remote:
             host, port = remote
-            def create_target(proxy):
+            def create_target(proxy, *, host=host, port=port):
                 async def create_targets(proxy):
                     def do_nothing(self):
                         pass
@@ -78,7 +78,7 @@ async def async_main(process=None,
 
     elif remote:
         host, port = remote
-        def create_target(proxy):
+        def create_target(proxy, *, host=host, port=port):
             return pwnstar.create_remote_target(proxy, host=host, port=port)
 
     if server:
@@ -86,8 +86,15 @@ async def async_main(process=None,
         await pwnstar.run_server(create_target, pwnstar.Proxy, host=host, port=port)
 
     elif webserver:
+        channels = list()
+        if remote:
+            host, port = remote
+            channel = f'{host}:{port}'
+            channels.append((channel, channel, [channel], False))
+        if process:
+            channels.append(('stdio', 0, [1, 2], tty))
         host, port = webserver
-        await pwnstar.run_webserver(create_target, pwnstar.Proxy, host=host, port=port, tty=tty)
+        await pwnstar.run_webserver(create_target, pwnstar.Proxy, host=host, port=port, channels=channels)
 
     else:
         return_code = await pwnstar.run_local(create_target, pwnstar.Proxy)

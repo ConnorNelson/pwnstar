@@ -14,9 +14,11 @@ async def create_process_target(proxy, *, proc_args):
         close_fds=False,
         env=os.environ)
 
-    proxy.target_write = target_transport.get_pipe_transport(0).write
-    proxy.target_write_eof = target_transport.get_pipe_transport(0).write_eof
-    proxy.target_get_returncode = target_transport.get_returncode
+    stdin = target_transport.get_pipe_transport(0)
+    proxy.attach_channel(0,
+                         stdin.write,
+                         stdin.write_eof,
+                         target_transport.get_returncode)
 
 
 async def create_tty_process_target(proxy, *, proc_args):
@@ -43,19 +45,24 @@ async def create_tty_process_target(proxy, *, proc_args):
         target_transport._proc.stdin.write(data)
         target_transport._proc.stdin.flush()
 
-    proxy.target_write = target_write
-    proxy.target_write_eof = lambda: target_write(b'\x04')
-    proxy.target_get_returncode = target_transport.get_returncode
+    proxy.attach_channel(0,
+                         target_write,
+                         lambda: target_write(b'\x04'),
+                         target_transport.get_returncode)
 
 
-async def create_remote_target(proxy, *, host=None, port=None, sock=None):
+async def create_remote_target(proxy, *, host=None, port=None, sock=None, channel=None):
     loop = asyncio.get_running_loop()
 
+    if not channel:
+        channel = f'{host}:{port}'
+
     target_transport, target_protocol = await loop.create_connection(
-        lambda: pwnstar.tubes.RemoteProtocol(proxy),
+        lambda: pwnstar.tubes.RemoteProtocol(proxy, channel=channel),
         host=host,
         port=port,
         sock=sock)
 
-    proxy.target_write = target_transport.write
-    proxy.target_write_eof = target_transport.write_eof
+    proxy.attach_channel(channel,
+                         target_transport.write,
+                         target_transport.write_eof)

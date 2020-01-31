@@ -1,192 +1,203 @@
-$(function () {
-    var terminal = new window.Terminal();
-    terminal.open($('#terminal')[0]);
 
-    function resize() {
-        const MINIMUM_COLS = 2;
-        const MINIMUM_ROWS = 1;
+class PwnstarTerminal {
+    constructor(name, input, outputs, tty, select) {
+        this.name = name;
+        this.input = input;
+        this.outputs = outputs;
+        this.tty = tty;
 
-        const core = terminal._core;
+        this.tab = $('<div>').attr('class', 'pwnstar-tab').text(name);
+        this.terminal = $('<div>').attr('class', 'pwnstar-terminal');
 
-        const parentElementStyle = window.getComputedStyle(terminal.element.parentElement);
-        const parentElementHeight = parseInt(parentElementStyle.getPropertyValue('height'));
-        const parentElementWidth = Math.max(0, parseInt(parentElementStyle.getPropertyValue('width')));
-        const elementStyle = window.getComputedStyle(terminal.element);
-        const elementPadding = {
-            top: parseInt(elementStyle.getPropertyValue('padding-top')),
-            bottom: parseInt(elementStyle.getPropertyValue('padding-bottom')),
-            right: parseInt(elementStyle.getPropertyValue('padding-right')),
-            left: parseInt(elementStyle.getPropertyValue('padding-left'))
-        };
-        const elementPaddingVer = elementPadding.top + elementPadding.bottom;
-        const elementPaddingHor = elementPadding.right + elementPadding.left;
-        const availableHeight = parentElementHeight - elementPaddingVer;
-        const availableWidth = parentElementWidth - elementPaddingHor - core.viewport.scrollBarWidth;
-        const geometry = {
-            cols: Math.max(MINIMUM_COLS, Math.floor(availableWidth / core._renderService.dimensions.actualCellWidth)),
-            rows: Math.max(MINIMUM_ROWS, Math.floor(availableHeight / core._renderService.dimensions.actualCellHeight))
-        };
+        this.tab.click(() => {
+            this.select();
+        });
 
-        core._renderService.clear();
-        terminal.resize(geometry.cols, geometry.rows);
+        $('.pwnstar-tabs').append(this.tab);
+        $('.pwnstar-terminals').append(this.terminal);
 
-        console.log(geometry);
+        this.xterm = new window.Terminal();
+        this.xterm.open(this.terminal[0]);
+
+        function resize(terminal) {
+            const MINIMUM_COLS = 2;
+            const MINIMUM_ROWS = 1;
+
+            const core = terminal._core;
+
+            const parentElementStyle = window.getComputedStyle(terminal.element.parentElement);
+            const parentElementHeight = parseInt(parentElementStyle.getPropertyValue('height'));
+            const parentElementWidth = Math.max(0, parseInt(parentElementStyle.getPropertyValue('width')));
+            const elementStyle = window.getComputedStyle(terminal.element);
+            const elementPadding = {
+                top: parseInt(elementStyle.getPropertyValue('padding-top')),
+                bottom: parseInt(elementStyle.getPropertyValue('padding-bottom')),
+                right: parseInt(elementStyle.getPropertyValue('padding-right')),
+                left: parseInt(elementStyle.getPropertyValue('padding-left'))
+            };
+            const elementPaddingVer = elementPadding.top + elementPadding.bottom;
+            const elementPaddingHor = elementPadding.right + elementPadding.left;
+            const availableHeight = parentElementHeight - elementPaddingVer;
+            const availableWidth = parentElementWidth - elementPaddingHor - core.viewport.scrollBarWidth;
+            const geometry = {
+                cols: Math.max(MINIMUM_COLS, Math.floor(availableWidth / core._renderService.dimensions.actualCellWidth)),
+                rows: Math.max(MINIMUM_ROWS, Math.floor(availableHeight / core._renderService.dimensions.actualCellHeight))
+            };
+
+            core._renderService.clear();
+            terminal.resize(geometry.cols, geometry.rows);
+        }
+
+        resize(this.xterm);
+        $(window).resize(() => resize(this.xterm));
+
+        if (select) {
+            this.select();
+        }
     }
 
-    resize();
-    $(window).resize(resize);
+    select() {
+        $('.pwnstar-tab').css('background-color', '');
+        $('.pwnstar-terminal').css('display', 'none');
+        $('.pwnstar-terminal').css('visibility', '');
 
-    $.getJSON('/tty', (tty) => {
-        var url = new URL('/ws', window.location.href);
+        this.tab.css('background-color', 'lightgray');
+        this.terminal.css('display', 'block');
+        this.terminal.css('visibility', 'visible');
+        this.xterm.focus();
+    }
+}
+
+function nonttyHandlers(terminal, socket) {
+    var buffer = "";
+
+    function onKey(e) {
+        if (terminal.input === null) {
+            return;
+        }
+
+        const printable = !e.domEvent.altKey && !e.domEvent.altGraphKey && !e.domEvent.ctrlKey && !e.domEvent.metaKey;
+
+        if (e.domEvent.keyCode === 13) {
+            buffer += '\n';
+            socket.send(JSON.stringify({
+                "data": buffer,
+                "channel": terminal.input
+            }));
+            buffer = "";
+            terminal.xterm.write('\r\n');
+        }
+        else if (e.domEvent.keyCode === 8) {
+            // Do not delete the prompt
+            if (buffer) {
+                buffer = buffer.slice(0, buffer.length - 1);
+                terminal.xterm.write('\b \b');
+            }
+        }
+        else if (printable) {
+            buffer += e.key;
+            terminal.xterm.write(e.key);
+        }
+    }
+
+    function onmessage(e) {
+        var message = null;
+
+        if (typeof data !== 'string') {
+            var enc = new TextDecoder("utf-8");
+            message = JSON.parse(enc.decode(event.data));
+        }
+        else {
+            message = JSON.parse(event.data);
+        }
+
+        if (!terminal.outputs.includes(message.channel)) {
+            return;
+        }
+
+        if (buffer) {
+            for (var i = 0; i < buffer.length; i++) {
+                terminal.xterm.write('\b \b');
+            }
+        }
+
+        message.data = message.data.replace(/\n/g, '\n\r');
+
+        if (message.channel === 2) {
+            message.data = '\033[0;31m' + message.data + '\033[0m';
+        }
+
+        terminal.xterm.write(message.data);
+
+        if (buffer) {
+            for (var i = 0; i < buffer.length; i++) {
+                terminal.xterm.write(buffer[i]);
+            }
+        }
+    }
+
+    return [onKey, onmessage];
+}
+
+$(function () {
+    $.getJSON(window.location.href + '/info', (response) => {
+        const tty = response.tty;
+        const channels = response.channels;
+
+        var url = new URL(window.location.href + '/ws');
         url.protocol = url.protocol.replace('http', 'ws');
 
         var socket = new WebSocket(url);
         socket.binaryType = 'arraybuffer';
 
-        if (tty) {
-            terminal.onData((data) => {
-                if (socket.readyState == 1) {
-                    socket.send(data);
-                }
-            });
-
-            socket.onmessage = (event) => {
-                const data = event.data;
-                terminal.write(typeof data === 'string' ? data : new Uint8Array(data));
-            };
-
-            socket.onclose = (event) => {
-                jQuery('#terminal').css('opacity', '0.5');
-            };
+        socket.onclose = (event) => {
+            jQuery('.pwnstar-terminal').css('opacity', '0.5');
         }
-        else {
-            var buffer = "";
 
-            terminal.onKey((e) => {
-                const printable = !e.domEvent.altKey && !e.domEvent.altGraphKey && !e.domEvent.ctrlKey && !e.domEvent.metaKey;
+        var selected = false;
 
-                if (e.domEvent.keyCode === 13) {
-                    buffer += '\n';
-                    socket.send(buffer);
-                    console.log(buffer);
-                    buffer = "";
-                    terminal.write('\r\n');
-                }
-                else if (e.domEvent.keyCode === 8) {
-                    // Do not delete the prompt
-                    if (buffer) {
-                        buffer = buffer.slice(0, buffer.length - 1);
-                        terminal.write('\b \b');
+        channels.forEach((channel) => {
+            const name = channel[0];
+            const input = channel[1];
+            const outputs = channel[2];
+            const tty = channel[3];
+
+            const terminal = new PwnstarTerminal(name, input, outputs, tty);
+
+            if (!selected) {
+                terminal.select();
+                selected = true;
+            }
+
+            if (!tty) {
+                const handlers = nonttyHandlers(terminal, socket);
+                const onKey = handlers[0];
+                const onmessage = handlers[1];
+
+                terminal.xterm.onKey(onKey);
+
+                const prevOnmessage = socket.onmessage;
+                socket.onmessage = (e) => {
+                    if (prevOnmessage) {
+                        prevOnmessage(e);
                     }
-                }
-                else if (printable) {
-                    buffer += e.key;
-                    terminal.write(e.key);
-                }
-            });
+                    onmessage(e);
+                };
+            }
 
-            socket.onmessage = (event) => {
-                var data = event.data;
-
-                if (buffer) {
-                    for (var i = 0; i < buffer.length; i++) {
-                        terminal.write('\b \b');
+            else {
+                // TODO: hasn't been upgraded for multichannel yet
+                terminal.xterm.onData((data) => {
+                    if (socket.readyState == 1) {
+                        socket.send(data);
                     }
-                }
+                });
 
-                if (typeof data !== 'string') {
-                    var enc = new TextDecoder("utf-8");
-                    data = enc.decode(event.data);
-                }
-
-                data = data.replace(/\n/g, '\n\r');
-                terminal.write(data);
-
-                if (buffer) {
-                    for (var i = 0; i < buffer.length; i++) {
-                        terminal.write(buffer[i]);
-                    }
-                }
-            };
-
-            socket.onclose = (event) => {
-                jQuery('#terminal').css('opacity', '0.5');
-            };
-        }
+                socket.onmessage = (event) => {
+                    const data = event.data;
+                    terminal.xterm.write(typeof data === 'string' ? data : new Uint8Array(data));
+                };
+            }
+        });
     });
-
-
-    // term.writeln("Hello world!");
-    // term.writeln("This is a test!");
-    // term.writeUtf8("\u001b]0;IPython: ire/leaker\u0007Python 3.8.0 (v3.8.0:fa919fdf25, Oct 14 2019, 10:23:27) \nType 'copyright', 'credits' or 'license' for more information\nIPython 7.8.0 -- An enhanced Interactive Python. Type '?' for help.\n\nIn [1]:".replace(/\n/g, '\n\r'));
-
-    // term.onKey(e => {
-    //     term.write(e.key + '\n');
-    // });
-
-
-    // function runFakeTerminal() {
-    //     if (term._initialized) {
-    //         return;
-    //     }
-
-    //     term._initialized = true;
-
-    //     term.prompt = () => {
-    //         term.write('\r\n$ ');
-    //     };
-
-    //     term.writeln('Welcome to xterm.js');
-    //     term.writeln('This is a local terminal emulation, without a real terminal in the back-end.');
-    //     term.writeln('Type some keys and commands to play around.');
-    //     term.writeln('');
-    //     prompt(term);
-
-    //     term.onKey(e => {
-    //         const printable = !e.domEvent.altKey && !e.domEvent.altGraphKey && !e.domEvent.ctrlKey && !e.domEvent.metaKey;
-
-    //         if (e.domEvent.keyCode === 13) {
-    //             prompt(term);
-    //         } else if (e.domEvent.keyCode === 8) {
-    //             // Do not delete the prompt
-    //             if (term._core.buffer.x > 2) {
-    //                 term.write('\b \b');
-    //             }
-    //         } else if (printable) {
-    //             term.write(e.key);
-    //         }
-    //     });
-    // }
-
-    // function prompt(term) {
-    //   term.write('\r\n$ ');
-    // }
-    // runFakeTerminal();
 });
-
-// $(function () {
-//     var webSocket = new WebSocket('ws://localhost:4241/');
-
-//     console.log(webSocket);
-
-//     webSocket.onmessage = function (event) {
-//         var reader = new FileReader();
-//         reader.onload = function(event) {
-//             var tr = $('<tr>');
-//             tr.append($('<td>').text('output'));
-//             tr.append($('<td>').append($('<pre>').text(event.target.result)));
-//             $('#table > tbody > tr:last').after(tr);
-//         };
-//         reader.readAsText(event.data);
-//     }
-
-
-//     $('#submit').on('click', () => {
-//         webSocket.send($('#input').val() + '\n');
-
-//         var tr = $('<tr>');
-//         tr.append($('<td>').text('input'));
-//         tr.append($('<td>').text($('#input').val()));
-//         $('#table > tbody > tr:last').after(tr);
-//     });
-// });

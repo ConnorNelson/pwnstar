@@ -1,8 +1,10 @@
 import sys
+import json
 import pathlib
 import asyncio
 
-from aiohttp import web
+import aiohttp
+import aiohttp.web
 
 import pwnstar.tubes
 
@@ -20,43 +22,55 @@ async def run_server(create_target, create_proxy, *, host, port):
         await server.serve_forever()
 
 
-async def run_webserver(create_target, create_proxy, *, host, port, tty=False):
+async def run_webserver(create_target, create_proxy, *, host, port, channels, start=True):
     loop = asyncio.get_running_loop()
     static_dir = pathlib.Path(__file__).parent / 'ws_static'
 
     async def index_handler(request):
-        return web.FileResponse(static_dir / 'index.html')
+        return aiohttp.web.FileResponse(static_dir / 'index.html')
 
-    async def tty_handler(request):
-        return web.json_response(tty)
+    async def info_handler(request):
+        return aiohttp.web.json_response({
+            'channels': channels
+        })
 
     async def ws_handler(request):
-        ws = web.WebSocketResponse()
+        ws = aiohttp.web.WebSocketResponse()
         await ws.prepare(request)
 
         proxy = create_proxy()
 
-        proxy.gateway_write = lambda data: loop.create_task(ws.send_bytes(data))
-        proxy.gateway_write_eof = lambda: loop.create_task(ws.close())  # TODO: maybe should be websocket.transport.write_eof? Need to think about websocket shutdown semantics
+        async def gateway_write_json(data, channel=None):
+            await ws.send_bytes(json.dumps({
+                'data': data.decode('latin'),
+                'channel': channel
+            }).encode())
+
+        proxy.gateway_write = lambda data, channel: loop.create_task(gateway_write_json(data, channel))
+        proxy.gateway_write_eof = lambda channel: loop.create_task(ws.close())
         proxy.gateway_close = lambda: loop.create_task(ws.close())
 
         target = await create_target(proxy)
 
         async for msg in ws:
-            data = msg.data.encode()
-            if not data:
-                data = proxy.on_send(b'')
-                proxy.target_write_eof()
-            data = proxy.on_send(data)
-            proxy.target_write(data)
+            json_data = json.loads(msg.data)
+            data = json_data['data'].encode('latin')
+            channel = json_data['channel']
+            if data:
+                proxy.on_send(data, channel)
+            else:
+                proxy.on_send(b'', channel)
 
-    app = web.Application()
-    app.add_routes([web.get('/', index_handler),
-                    web.get('/tty', tty_handler),
-                    web.get('/ws', ws_handler),
-                    web.static('/',  static_dir, show_index=True)])
+    app = aiohttp.web.Application()
+    app.add_routes([aiohttp.web.get('/', index_handler),
+                    aiohttp.web.get('/info', info_handler),
+                    aiohttp.web.get('/ws', ws_handler),
+                    aiohttp.web.static('/',  static_dir, show_index=True)])
 
-    await web._run_app(app, host=host, port=port)
+    if start:
+        await aiohttp.web._run_app(app, host=host, port=port)
+    else:
+        return app
 
 
 async def run_local(create_target, create_proxy):
