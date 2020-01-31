@@ -101,14 +101,11 @@ function nonttyHandlers(terminal, socket) {
     }
 
     function onmessage(e) {
-        var message = null;
+        const decoder = new TextDecoder("utf-8");
+        const message = JSON.parse(decoder.decode(e.data));
 
-        if (typeof data !== 'string') {
-            var enc = new TextDecoder("utf-8");
-            message = JSON.parse(enc.decode(e.data));
-        }
-        else {
-            message = JSON.parse(e.data);
+        if (!message.data && !message.channel) {
+            return;
         }
 
         if (!terminal.outputs.includes(message.channel)) {
@@ -140,11 +137,14 @@ function nonttyHandlers(terminal, socket) {
 }
 
 $(function () {
-    $.getJSON(window.location.href + '/info', (response) => {
-        const tty = response.tty;
+    const href = window.location.href;
+    const infoUrl = href + (href.endsWith('/') ? '' : '/') + 'info';
+    const wsUrl = href + (href.endsWith('/') ? '' : '/') + 'ws';
+
+    $.getJSON(infoUrl, (response) => {
         const channels = response.channels;
 
-        var url = new URL(window.location.href + '/ws');
+        var url = new URL(wsUrl);
         url.protocol = url.protocol.replace('http', 'ws');
 
         var socket = new WebSocket(url);
@@ -152,6 +152,21 @@ $(function () {
 
         socket.onclose = (e) => {
             jQuery('.pwnstar-terminal').css('opacity', '0.5');
+            $('.modal').removeClass('loader');
+            $('.modal').addClass('redo');
+            $('.modal').css('display', '');
+            $('.modal').click(() => {
+                window.location.reload();
+            })
+        }
+
+        socket.onmessage = (e) => {
+            const decoder = new TextDecoder("utf-8");
+            const message = JSON.parse(decoder.decode(e.data));
+
+            if (message.status === 'ready') {
+                $('.loader').hide(1000);
+            }
         }
 
         var selected = false;

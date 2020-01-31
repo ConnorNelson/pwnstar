@@ -52,6 +52,10 @@ async def run_webserver(create_target, create_proxy, *, host, port, channels, st
 
         target = await create_target(proxy)
 
+        await ws.send_bytes(json.dumps({
+            'status': 'ready'
+        }).encode())
+
         async for msg in ws:
             json_data = json.loads(msg.data)
             data = json_data['data'].encode('latin')
