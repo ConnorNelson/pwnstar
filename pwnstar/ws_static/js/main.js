@@ -136,6 +136,34 @@ function nonttyHandlers(terminal, socket) {
     return [onKey, onmessage];
 }
 
+function ttyHandlers(terminal, socket) {
+    function onData(e) {
+        if (socket.readyState == 1) {
+            socket.send(JSON.stringify({
+                "data": e,
+                "channel": terminal.input
+            }));
+        }
+    }
+
+    function onmessage(e) {
+        const decoder = new TextDecoder("utf-8");
+        const message = JSON.parse(decoder.decode(e.data));
+
+        if (!message.data && !message.channel) {
+            return;
+        }
+
+        if (!terminal.outputs.includes(message.channel)) {
+            return;
+        }
+
+        terminal.xterm.write(typeof message.data === 'string' ? message.data : new Uint8Array(message.data));
+    }
+
+    return [onData, onmessage];
+}
+
 $(function () {
     const href = window.location.href;
     const infoUrl = href + (href.endsWith('/') ? '' : '/') + 'info';
@@ -201,16 +229,18 @@ $(function () {
             }
 
             else {
-                // TODO: hasn't been upgraded for multichannel yet
-                terminal.xterm.onData((data) => {
-                    if (socket.readyState == 1) {
-                        socket.send(data);
-                    }
-                });
+                const handlers = ttyHandlers(terminal, socket);
+                const onData = handlers[0];
+                const onmessage = handlers[1];
 
-                socket.onmessage = (event) => {
-                    const data = event.data;
-                    terminal.xterm.write(typeof data === 'string' ? data : new Uint8Array(data));
+                terminal.xterm.onData(onData);
+
+                const prevOnmessage = socket.onmessage;
+                socket.onmessage = (e) => {
+                    if (prevOnmessage) {
+                        prevOnmessage(e);
+                    }
+                    onmessage(e);
                 };
             }
         });
