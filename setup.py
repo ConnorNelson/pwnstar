@@ -13,7 +13,7 @@ except ImportError:
 setup(
     name='pwnstar',
     python_requires='>=3.7',
-    version='0.3.4',
+    version='0.3.5',
     packages=packages,
     install_requires=[
         'aiohttp'

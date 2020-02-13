@@ -49,6 +49,8 @@ html, body {
 .loader {
     width: 120px;
     height: 120px;
+    margin-left: -76px;
+    margin-top: -76px;
     border: 16px solid #f3f3f3;
     border-top: 16px solid #3498db;
     border-radius: 50%;
@@ -63,6 +65,8 @@ html, body {
 .redo {
     width: 152px;
     height: 152px;
+    margin-left: -76px;
+    margin-top: -76px;
     background-color: #f3f3f3;
     cursor: pointer;
     mask: url(/img/redo-solid.svg) no-repeat center;
