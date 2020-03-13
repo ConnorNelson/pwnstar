@@ -6,6 +6,8 @@ class PwnstarTerminal {
         this.outputs = outputs;
         this.tty = tty;
 
+        this.writable = true;
+
         this.tab = $('<div>').attr('class', 'pwnstar-tab').text(name);
         this.terminal = $('<div>').attr('class', 'pwnstar-terminal');
 
@@ -76,9 +78,12 @@ function nonttyHandlers(terminal, socket) {
             return;
         }
 
-        const printable = !e.domEvent.altKey && !e.domEvent.altGraphKey && !e.domEvent.ctrlKey && !e.domEvent.metaKey;
+        const printable = !e.domEvent.ctrlKey && !e.domEvent.altKey && !e.domEvent.metaKey;
+        if (!printable || !terminal.writable) {
+            return;
+        }
 
-        if (e.domEvent.keyCode === 13) {
+        if (e.domEvent.key === 'Enter') {
             buffer += '\n';
             socket.send(JSON.stringify({
                 "data": buffer,
@@ -87,16 +92,16 @@ function nonttyHandlers(terminal, socket) {
             buffer = "";
             terminal.xterm.write('\r\n');
         }
-        else if (e.domEvent.keyCode === 8) {
+        else if (e.domEvent.key === 'Backspace') {
             // Do not delete the prompt
             if (buffer) {
                 buffer = buffer.slice(0, buffer.length - 1);
                 terminal.xterm.write('\b \b');
             }
         }
-        else if (printable) {
+        else if (e.domEvent.key === e.key) {
             buffer += e.key;
-            terminal.xterm.write(e.key);
+            terminal.xterm.write('\033[0;33m' + e.key + '\033[0m');
         }
     }
 
@@ -128,7 +133,7 @@ function nonttyHandlers(terminal, socket) {
 
         if (buffer) {
             for (var i = 0; i < buffer.length; i++) {
-                terminal.xterm.write(buffer[i]);
+                terminal.xterm.write('\033[0;33m' + buffer[i] + '\033[0m');
             }
         }
     }
@@ -165,9 +170,9 @@ function ttyHandlers(terminal, socket) {
 }
 
 $(function () {
-    const href = window.location.href;
-    const infoUrl = href + (href.endsWith('/') ? '' : '/') + 'info';
-    const wsUrl = href + (href.endsWith('/') ? '' : '/') + 'ws';
+    const baseUrl = window.location.origin + window.location.pathname;
+    const infoUrl = baseUrl + (baseUrl.endsWith('/') ? '' : '/') + 'info' + window.location.search;
+    const wsUrl = baseUrl + (baseUrl.endsWith('/') ? '' : '/') + 'ws' + window.location.search;
 
     $.getJSON(infoUrl, (response) => {
         const channels = response.channels;
@@ -179,13 +184,21 @@ $(function () {
         socket.binaryType = 'arraybuffer';
 
         socket.onclose = (e) => {
-            jQuery('.pwnstar-terminal').css('opacity', '0.5');
-            $('.modal').removeClass('loader');
-            $('.modal').addClass('redo');
-            $('.modal').show(1000);
-            $('.modal').click(() => {
-                window.location.reload();
-            })
+            window.terminals.forEach((t) => {
+                t.writable = false;
+            });
+            $('.xterm-cursor-layer').hide();
+
+            const oneshot = new URLSearchParams(window.location.search).get('oneshot');
+            if (oneshot === null) {
+                $('.pwnstar-terminal').css('opacity', '0.5');
+                $('.modal').removeClass('loader');
+                $('.modal').addClass('redo');
+                $('.modal').show(1000);
+                $('.modal').click(() => {
+                    window.location.reload();
+                })
+            }
         }
 
         socket.onmessage = (e) => {
@@ -199,6 +212,16 @@ $(function () {
 
         var selected = false;
 
+        var initialInput = atob(window.location.hash.substring(1));
+        if (initialInput) {
+            initialInput = JSON.parse(initialInput);
+        }
+        else {
+            initialInput = {};
+        }
+
+        window.terminals = [];
+
         channels.forEach((channel) => {
             const name = channel[0];
             const input = channel[1];
@@ -206,6 +229,7 @@ $(function () {
             const tty = channel[3];
 
             const terminal = new PwnstarTerminal(name, input, outputs, tty);
+            window.terminals.push(terminal);
 
             if (!selected) {
                 terminal.select();
@@ -224,6 +248,21 @@ $(function () {
                     if (prevOnmessage) {
                         prevOnmessage(e);
                     }
+
+                    const decoder = new TextDecoder("utf-8");
+                    const message = JSON.parse(decoder.decode(e.data));
+
+                    if (message.status === 'ready') {
+                        if (input in initialInput) {
+                            initialInput[input].split('').forEach((c) => {
+                                onKey({
+                                    key: c,
+                                    domEvent: new KeyboardEvent('keydown', {'key': c != '\n' ? c : 'Enter'})
+                                });
+                            });
+                        }
+                    }
+
                     onmessage(e);
                 };
             }
