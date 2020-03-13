@@ -71,7 +71,7 @@ class PwnstarTerminal {
 }
 
 function nonttyHandlers(terminal, socket) {
-    var buffer = "";
+    var buffer = '';
 
     function onKey(e) {
         if (terminal.input === null) {
@@ -86,10 +86,10 @@ function nonttyHandlers(terminal, socket) {
         if (e.domEvent.key === 'Enter') {
             buffer += '\n';
             socket.send(JSON.stringify({
-                "data": buffer,
-                "channel": terminal.input
+                'data': buffer,
+                'channel': terminal.input
             }));
-            buffer = "";
+            buffer = '';
             terminal.xterm.write('\r\n');
         }
         else if (e.domEvent.key === 'Backspace') {
@@ -106,7 +106,7 @@ function nonttyHandlers(terminal, socket) {
     }
 
     function onmessage(e) {
-        const decoder = new TextDecoder("utf-8");
+        const decoder = new TextDecoder('utf-8');
         const message = JSON.parse(decoder.decode(e.data));
 
         if (!message.data && !message.channel) {
@@ -145,14 +145,14 @@ function ttyHandlers(terminal, socket) {
     function onData(e) {
         if (socket.readyState == 1) {
             socket.send(JSON.stringify({
-                "data": e,
-                "channel": terminal.input
+                'data': e,
+                'channel': terminal.input
             }));
         }
     }
 
     function onmessage(e) {
-        const decoder = new TextDecoder("utf-8");
+        const decoder = new TextDecoder('utf-8');
         const message = JSON.parse(decoder.decode(e.data));
 
         if (!message.data && !message.channel) {
@@ -170,6 +170,8 @@ function ttyHandlers(terminal, socket) {
 }
 
 $(function () {
+    const search = new URLSearchParams(window.location.search);
+
     const baseUrl = window.location.origin + window.location.pathname;
     const infoUrl = baseUrl + (baseUrl.endsWith('/') ? '' : '/') + 'info' + window.location.search;
     const wsUrl = baseUrl + (baseUrl.endsWith('/') ? '' : '/') + 'ws' + window.location.search;
@@ -189,24 +191,42 @@ $(function () {
             });
             $('.xterm-cursor-layer').hide();
 
-            const oneshot = new URLSearchParams(window.location.search).get('oneshot');
-            if (oneshot === null) {
+            if (search.get('oneshot') === null) {
                 $('.pwnstar-terminal').css('opacity', '0.5');
-                $('.modal').removeClass('loader');
-                $('.modal').addClass('redo');
-                $('.modal').show(1000);
-                $('.modal').click(() => {
+                $('.pwnstar-modal').removeClass('loader');
+                $('.pwnstar-modal').addClass('redo');
+                $('.pwnstar-modal').show(1000);
+                $('.pwnstar-modal').click(() => {
                     window.location.reload();
                 })
             }
         }
 
         socket.onmessage = (e) => {
-            const decoder = new TextDecoder("utf-8");
+            const decoder = new TextDecoder('utf-8');
             const message = JSON.parse(decoder.decode(e.data));
 
             if (message.status === 'ready') {
                 $('.loader').hide(1000);
+            }
+            else if (message.status === 'close') {
+                if (search.get('annotate') === null) {
+                    socket.close();
+                }
+                else {
+                    $('#annotateModal').on('shown.bs.modal', function () {
+                        $('#annotation').focus();
+                    });
+                    $('#annotate').click(() => {
+                        $('#annotateModal').modal('hide');
+                        socket.send(JSON.stringify({
+                            'data': $('#annotation').val(),
+                            'channel': 'annotation'
+                        }));
+                        socket.close();
+                    });
+                    $('#annotateModal').modal();
+                }
             }
         }
 
@@ -249,7 +269,7 @@ $(function () {
                         prevOnmessage(e);
                     }
 
-                    const decoder = new TextDecoder("utf-8");
+                    const decoder = new TextDecoder('utf-8');
                     const message = JSON.parse(decoder.decode(e.data));
 
                     if (message.status === 'ready') {

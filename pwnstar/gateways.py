@@ -46,9 +46,15 @@ async def run_webserver(create_target, create_proxy, *, host, port, channels, st
                 'channel': channel
             }).encode())
 
+        async def gateway_write_status(status, channel=None):
+            await ws.send_bytes(json.dumps({
+                'status': status,
+                'channel': channel
+            }).encode())
+
         proxy.gateway_write = lambda data, channel: loop.create_task(gateway_write_json(data, channel))
-        proxy.gateway_write_eof = lambda channel: loop.create_task(ws.close())
-        proxy.gateway_close = lambda: loop.create_task(ws.close())
+        proxy.gateway_write_eof = lambda channel: loop.create_task(gateway_write_status('close', channel))
+        proxy.gateway_close = lambda: loop.create_task(gateway_write_status('close'))
 
         target = await create_target(proxy)
 

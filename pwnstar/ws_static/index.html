@@ -1,14 +1,33 @@
 <html>
   <head>
+    <link rel="stylesheet" href="/css/bootstrap.css" />
     <link rel="stylesheet" href="/css/xterm.css" />
     <link rel="stylesheet" href="/css/main.css" />
     <script src="/js/jquery.js"></script>
+    <script src="/js/bootstrap.js"></script>
     <script src="/js/xterm.js"></script>
     <script src="/js/main.js"></script>
   </head>
   <body>
     <div class="pwnstar-tabs"></div>
     <div class="pwnstar-terminals"></div>
-    <div class="modal loader"></div>
+    <div class="pwnstar-modal loader"></div>
+
+    <div class="modal fade" id="annotateModal" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="exampleModalLabel">Annotate</h5>
+          </div>
+          <div class="modal-body">
+            <textarea id="annotation"></textarea>
+          </div>
+          <div class="modal-footer">
+            <button id="annotate" type="button" class="btn btn-primary">Annotate</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </body>
 </html>
