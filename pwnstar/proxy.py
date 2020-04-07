@@ -10,6 +10,8 @@ class Proxy:
         self.target_write = None
         self.target_write_eof = None
         self.target_get_returncode = None
+        self.target_kill = None
+        self.target_killed = False
         self.history = []
         self.exited = asyncio.Future()
 

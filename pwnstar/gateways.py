@@ -64,12 +64,21 @@ async def run_webserver(create_target, create_proxy, *, host, port, channels, st
 
         async for msg in ws:
             json_data = json.loads(msg.data)
+            if 'signal' in json_data:
+                if json_data['signal'] == 'kill' and proxy.target_kill:
+                    proxy.target_kill()
+                    proxy.target_killed = True
+                continue
             data = json_data['data'].encode('latin')
             channel = json_data['channel']
             if data:
                 proxy.on_send(data, channel)
             else:
                 proxy.on_send(b'', channel)
+
+        if not proxy.exited.done() and proxy.target_kill:
+            proxy.target_kill()
+            proxy.target_killed = True
 
     app = aiohttp.web.Application()
     app.add_routes([aiohttp.web.get('/', index_handler),

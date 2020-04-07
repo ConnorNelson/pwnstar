@@ -19,6 +19,7 @@ async def create_process_target(proxy, *, proc_args):
                          stdin.write,
                          stdin.write_eof,
                          target_transport.get_returncode)
+    proxy.target_kill = target_transport.kill
 
 
 async def create_tty_process_target(proxy, *, proc_args):

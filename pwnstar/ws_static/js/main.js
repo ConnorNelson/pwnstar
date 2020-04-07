@@ -74,16 +74,20 @@ function nonttyHandlers(terminal, socket) {
     var buffer = '';
 
     function onKey(e) {
-        if (terminal.input === null) {
+        if (terminal.input === null)
             return;
-        }
-
-        const printable = !e.domEvent.ctrlKey && !e.domEvent.altKey && !e.domEvent.metaKey;
-        if (!printable || !terminal.writable) {
+        if (!terminal.writable)
             return;
-        }
 
-        if (e.domEvent.key === 'Enter') {
+        const modifier = 0 |
+              (e.domEvent.ctrlKey && 1) |
+              (e.domEvent.altKey && 2) |
+              (e.domEvent.metaKey && 4);
+
+        console.log(modifier);
+        console.log(e.domEvent.key);
+
+        if (e.domEvent.key === 'Enter' && !modifier) {
             buffer += '\n';
             socket.send(JSON.stringify({
                 'data': buffer,
@@ -92,14 +96,26 @@ function nonttyHandlers(terminal, socket) {
             buffer = '';
             terminal.xterm.write('\r\n');
         }
-        else if (e.domEvent.key === 'Backspace') {
+        else if (e.domEvent.key === 'Backspace' && !modifier) {
             // Do not delete the prompt
             if (buffer) {
                 buffer = buffer.slice(0, buffer.length - 1);
                 terminal.xterm.write('\b \b');
             }
         }
-        else if (e.domEvent.key === e.key) {
+        else if (e.domEvent.key === 'd' && modifier === 1 && !buffer) {
+            socket.send(JSON.stringify({
+                'data': buffer,
+                'channel': terminal.input
+            }));
+        }
+        else if (e.domEvent.key === 'c' && modifier === 1) {
+            socket.send(JSON.stringify({
+                'signal': 'kill',
+                'channel': terminal.input
+            }));
+        }
+        else if (e.domEvent.key === e.key && !modifier) {
             buffer += e.key;
             terminal.xterm.write('\033[0;33m' + e.key + '\033[0m');
         }
@@ -144,6 +160,7 @@ function nonttyHandlers(terminal, socket) {
 function ttyHandlers(terminal, socket) {
     function onData(e) {
         if (socket.readyState == 1) {
+            console.log(JSON.stringify(e));
             socket.send(JSON.stringify({
                 'data': e,
                 'channel': terminal.input
@@ -208,6 +225,11 @@ $(function () {
 
             if (message.status === 'ready') {
                 $('.loader').hide(1000);
+                $('.pwnstar-kill').click((e) => {
+                    socket.send(JSON.stringify({
+                        'signal': 'kill'
+                    }));
+                });
             }
             else if (message.status === 'close') {
                 if (search.get('annotate') === null) {

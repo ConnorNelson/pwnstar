@@ -78,6 +78,40 @@ html, body {
     -webkit-mask: url(/img/redo-solid.svg) no-repeat center;
 }
 
+.pwnstar-kill {
+    position: absolute;
+    left: 100%;
+    top: 0%;
+    width: 25px;
+    height: 25px;
+    border-radius: 30px;
+    margin-left: -30px;
+    margin-top: 2.5px;
+    background-color: lightgray;
+    font-family: "Lucida Console", Monaco, monospace;
+    text-align: center;
+    user-select: none;
+    cursor: pointer;
+}
+
+.pwnstar-kill-tooltip {
+    visibility: hidden;
+    position: absolute;
+    left: -100px;
+    top: 30px;
+    width: 120px;
+    padding: 5px;
+    border-radius: 6px;
+    background-color: gray;
+    color: white;
+    font-size: 10px;
+    text-align: center;
+}
+
+.pwnstar-kill:hover .pwnstar-kill-tooltip {
+    visibility: visible;
+}
+
 .xterm-viewport {
     overflow: hidden !important;
 }
