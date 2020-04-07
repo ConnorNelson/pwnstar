@@ -84,9 +84,6 @@ function nonttyHandlers(terminal, socket) {
               (e.domEvent.altKey && 2) |
               (e.domEvent.metaKey && 4);
 
-        console.log(modifier);
-        console.log(e.domEvent.key);
-
         if (e.domEvent.key === 'Enter' && !modifier) {
             buffer += '\n';
             socket.send(JSON.stringify({
@@ -160,7 +157,6 @@ function nonttyHandlers(terminal, socket) {
 function ttyHandlers(terminal, socket) {
     function onData(e) {
         if (socket.readyState == 1) {
-            console.log(JSON.stringify(e));
             socket.send(JSON.stringify({
                 'data': e,
                 'channel': terminal.input
