@@ -12,6 +12,7 @@ class Proxy:
         self.target_get_returncode = None
         self.target_kill = None
         self.target_killed = False
+        self.target_signaled = None
         self.history = []
         self.exited = asyncio.Future()
 

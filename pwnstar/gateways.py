@@ -68,6 +68,7 @@ async def run_webserver(create_target, create_proxy, *, host, port, channels, st
                 if json_data['signal'] == 'kill' and proxy.target_kill:
                     proxy.target_kill()
                     proxy.target_killed = True
+                    proxy.target_signaled = 'kill'
                 continue
             data = json_data['data'].encode('latin')
             channel = json_data['channel']
