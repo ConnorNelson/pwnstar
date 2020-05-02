@@ -73,6 +73,19 @@ class PwnstarTerminal {
 function nonttyHandlers(terminal, socket) {
     var buffer = '';
 
+    function rawinput(char) {
+        if (terminal.input === null)
+        {
+            return;
+        }
+        if (!terminal.writable)
+        {
+            return;
+        }
+        buffer += char;
+        terminal.xterm.write('\033[0;33m' + char + '\033[0m');
+    }
+
     function onKey(e) {
         if (terminal.input === null)
             return;
@@ -113,8 +126,7 @@ function nonttyHandlers(terminal, socket) {
             }));
         }
         else if (e.domEvent.key === e.key && !modifier) {
-            buffer += e.key;
-            terminal.xterm.write('\033[0;33m' + e.key + '\033[0m');
+            rawinput(e.key);
         }
     }
 
@@ -151,7 +163,7 @@ function nonttyHandlers(terminal, socket) {
         }
     }
 
-    return [onKey, onmessage];
+    return [onKey, onmessage, rawinput];
 }
 
 function ttyHandlers(terminal, socket) {
@@ -250,17 +262,11 @@ $(function () {
 
         var selected = false;
 
-        var initialInput = atob(window.location.hash.substring(1));
-        if (initialInput) {
-            initialInput = JSON.parse(initialInput);
-        }
-        else {
-            initialInput = {};
-        }
+        const initialInput = atob(window.location.hash.substring(1));
 
         window.terminals = [];
 
-        channels.forEach((channel) => {
+        channels.forEach((channel, idx) => {
             const name = channel[0];
             const input = channel[1];
             const outputs = channel[2];
@@ -278,6 +284,7 @@ $(function () {
                 const handlers = nonttyHandlers(terminal, socket);
                 const onKey = handlers[0];
                 const onmessage = handlers[1];
+                const rawinput = handlers[2];
 
                 terminal.xterm.onKey(onKey);
 
@@ -291,12 +298,17 @@ $(function () {
                     const message = JSON.parse(decoder.decode(e.data));
 
                     if (message.status === 'ready') {
-                        if (input in initialInput) {
-                            initialInput[input].split('').forEach((c) => {
-                                onKey({
-                                    key: c,
-                                    domEvent: new KeyboardEvent('keydown', {'key': c != '\n' ? c : 'Enter'})
-                                });
+                        if (idx === 0) {
+                            initialInput.split('').forEach((c) => {
+                                if (c === '\n') {
+                                    onKey({
+                                        key: c,
+                                        domEvent: new KeyboardEvent('keydown', {'key': 'Enter'})
+                                    });
+                                }
+                                else {
+                                    rawinput(c);
+                                }
                             });
                         }
                     }
